@@ -1,0 +1,6 @@
+{
+  "name": "Hệ Thống Quản Lý Nhà Trọ - Google Sheets & Apps Script",
+  "description": "Ứng dụng web quản lý nhà trọ chuyên nghiệp, kết nối cơ sở dữ liệu Google Sheets và Google Apps Script backend với phân quyền ADMIN/USER, quản lý phòng, nhân khẩu và tạm trú.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
