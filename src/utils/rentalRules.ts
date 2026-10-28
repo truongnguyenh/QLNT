@@ -82,7 +82,142 @@ export function processResidentMoveOut(
 }
 
 /**
- * Filters rooms accessible to the current user
+ * Extracts the primary numeric room number from a room name or code.
+ * Examples:
+ * - "Phòng 101" -> 101
+ * - "Phòng 02" -> 2
+ * - "104" -> 104
+ * - "Dãy A - Phòng 12" -> 12
+ */
+export function extractRoomNumber(text: string): number | null {
+  if (!text) return null;
+  const matches = text.match(/\d+/g);
+  if (!matches || matches.length === 0) return null;
+  const lastMatch = matches[matches.length - 1];
+  const parsed = parseInt(lastMatch, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+/**
+ * Natural comparison for two room name strings ("Phòng 1", "Phòng 2", "Phòng 10", "104", "Phòng 201")
+ */
+export function compareRoomNameStrings(nameA: string, nameB: string): number {
+  const cleanA = (nameA || '').trim();
+  const cleanB = (nameB || '').trim();
+
+  const numA = extractRoomNumber(cleanA);
+  const numB = extractRoomNumber(cleanB);
+
+  if (numA !== null && numB !== null && numA !== numB) {
+    return numA - numB;
+  }
+
+  return cleanA.localeCompare(cleanB, 'vi', {
+    numeric: true,
+    sensitivity: 'base',
+  });
+}
+
+/**
+ * Natural comparison for two Phong objects (by MaNhaTro first, then by room number)
+ */
+export function compareRooms(a: Phong, b: Phong): number {
+  const houseCompare = (a.MaNhaTro || '').localeCompare(b.MaNhaTro || '', 'vi', {
+    numeric: true,
+    sensitivity: 'base',
+  });
+  if (houseCompare !== 0) return houseCompare;
+
+  const roomNameCompare = compareRoomNameStrings(a.TenPhong, b.TenPhong);
+  if (roomNameCompare !== 0) return roomNameCompare;
+
+  return compareRoomNameStrings(a.MaPhong, b.MaPhong);
+}
+
+/**
+ * Returns a new array of rooms sorted in natural numeric sequence
+ */
+export function sortRoomsNaturally(rooms: Phong[]): Phong[] {
+  return [...rooms].sort(compareRooms);
+}
+
+/**
+ * Normalizes a user-entered room name so bare numbers like "104" become "Phòng 104"
+ */
+export function normalizeRoomName(rawName: string): string {
+  const trimmed = rawName.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return `Phòng ${trimmed}`;
+  }
+  return trimmed;
+}
+
+/**
+ * Derives a clean room code suffix (e.g. "P104" or "P03") from a room name
+ */
+export function deriveRoomCodeSuffix(tenPhong: string): string {
+  const matches = tenPhong.trim().match(/\d+/g);
+  if (matches && matches.length > 0) {
+    return `P${matches[matches.length - 1]}`;
+  }
+  const cleanAlpha = tenPhong
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+  return cleanAlpha || 'P01';
+}
+
+/**
+ * Suggests the next sequential room name and room code suffix for a given boarding house
+ * (Replaces random Math.random() room codes)
+ */
+export function getNextRoomSuggestion(
+  rooms: Phong[],
+  maNhaTro: string
+): { nextTenPhong: string; nextMaPhongSuffix: string } {
+  const houseRooms = sortRoomsNaturally(
+    rooms.filter((r) => r.MaNhaTro === maNhaTro)
+  );
+
+  if (houseRooms.length === 0) {
+    return { nextTenPhong: 'Phòng 01', nextMaPhongSuffix: 'P01' };
+  }
+
+  const lastRoom = houseRooms[houseRooms.length - 1];
+  const rawMatch = lastRoom.TenPhong.match(/\d+/g);
+  const lastNumStr = rawMatch ? rawMatch[rawMatch.length - 1] : null;
+
+  if (!lastNumStr) {
+    const nextIdx = houseRooms.length + 1;
+    const padded = nextIdx < 10 ? `0${nextIdx}` : `${nextIdx}`;
+    return { nextTenPhong: `Phòng ${padded}`, nextMaPhongSuffix: `P${padded}` };
+  }
+
+  const padLen =
+    lastNumStr.startsWith('0') && lastNumStr.length > 1 ? lastNumStr.length : 0;
+  let candidateNum = parseInt(lastNumStr, 10) + 1;
+
+  const existingNumbers = new Set(
+    houseRooms
+      .map((r) => extractRoomNumber(r.TenPhong))
+      .filter((n): n is number => n !== null)
+  );
+
+  while (existingNumbers.has(candidateNum)) {
+    candidateNum++;
+  }
+
+  const formattedNum =
+    padLen > 0 ? String(candidateNum).padStart(padLen, '0') : String(candidateNum);
+
+  return {
+    nextTenPhong: `Phòng ${formattedNum}`,
+    nextMaPhongSuffix: `P${formattedNum}`,
+  };
+}
+
+/**
+ * Filters rooms accessible to the current user and sorts them in natural numeric order
  */
 export function getAuthorizedRooms(
   rooms: Phong[],
@@ -90,18 +225,22 @@ export function getAuthorizedRooms(
   adminFilterMaNhaTro: string = 'ALL'
 ): Phong[] {
   if (!user) return [];
+  let filtered: Phong[];
   if (user.Role === 'ADMIN') {
     if (!adminFilterMaNhaTro || adminFilterMaNhaTro === 'ALL') {
-      return rooms;
+      filtered = rooms;
+    } else {
+      filtered = rooms.filter((p) => p.MaNhaTro === adminFilterMaNhaTro);
     }
-    return rooms.filter((p) => p.MaNhaTro === adminFilterMaNhaTro);
+  } else {
+    // User can only see rooms belonging to their MaNhaTro
+    filtered = rooms.filter((p) => p.MaNhaTro === user.MaNhaTro);
   }
-  // User can only see rooms belonging to their MaNhaTro
-  return rooms.filter((p) => p.MaNhaTro === user.MaNhaTro);
+  return sortRoomsNaturally(filtered);
 }
 
 /**
- * Filters residents accessible to the current user
+ * Filters residents accessible to the current user and sorts them by boarding house and room number
  */
 export function getAuthorizedResidents(
   residents: NhanKhau[],
@@ -109,18 +248,32 @@ export function getAuthorizedResidents(
   adminFilterMaNhaTro: string = 'ALL'
 ): NhanKhau[] {
   if (!user) return [];
+  let filtered: NhanKhau[];
   if (user.Role === 'ADMIN') {
     if (!adminFilterMaNhaTro || adminFilterMaNhaTro === 'ALL') {
-      return residents;
+      filtered = residents;
+    } else {
+      filtered = residents.filter((r) => r.MaNhaTro === adminFilterMaNhaTro);
     }
-    return residents.filter((r) => r.MaNhaTro === adminFilterMaNhaTro);
+  } else {
+    // User can only see residents belonging to their MaNhaTro
+    filtered = residents.filter((r) => r.MaNhaTro === user.MaNhaTro);
   }
-  // User can only see residents belonging to their MaNhaTro
-  return residents.filter((r) => r.MaNhaTro === user.MaNhaTro);
+
+  return [...filtered].sort((a, b) => {
+    const houseCmp = (a.MaNhaTro || '').localeCompare(b.MaNhaTro || '', 'vi', {
+      numeric: true,
+      sensitivity: 'base',
+    });
+    if (houseCmp !== 0) return houseCmp;
+    const roomCmp = compareRoomNameStrings(a.TenPhong, b.TenPhong);
+    if (roomCmp !== 0) return roomCmp;
+    return (a.HoTen || '').localeCompare(b.HoTen || '', 'vi');
+  });
 }
 
 /**
- * Get distinct list of boarding houses from accounts/rooms
+ * Get distinct list of boarding houses from accounts/rooms sorted naturally
  */
 export function getDistinctBoardingHouses(
   rooms: Phong[],
@@ -142,10 +295,17 @@ export function getDistinctBoardingHouses(
     }
   });
 
-  return Array.from(map.entries()).map(([maNhaTro, tenNhaTro]) => ({
-    maNhaTro,
-    tenNhaTro,
-  }));
+  return Array.from(map.entries())
+    .map(([maNhaTro, tenNhaTro]) => ({
+      maNhaTro,
+      tenNhaTro,
+    }))
+    .sort((a, b) =>
+      a.maNhaTro.localeCompare(b.maNhaTro, 'vi', {
+        numeric: true,
+        sensitivity: 'base',
+      })
+    );
 }
 
 /**

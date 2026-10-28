@@ -7,7 +7,12 @@ import {
   Lock,
 } from 'lucide-react';
 import { Phong, NhanKhau, TaiKhoan } from '../types/rental.ts';
-import { countActiveOccupants, MAX_RESIDENTS_PER_ROOM } from '../utils/rentalRules.ts';
+import {
+  countActiveOccupants,
+  MAX_RESIDENTS_PER_ROOM,
+  sortRoomsNaturally,
+  normalizeRoomName,
+} from '../utils/rentalRules.ts';
 
 interface DashboardOverviewProps {
   rooms: Phong[];
@@ -32,12 +37,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onOpenAddResident,
   onToggleTamTru,
 }) => {
+  const sortedRooms = sortRoomsNaturally(rooms);
   const activeResidents = residents.filter((r) => r.TrangThai === 'Đang ở');
   const declaredTamTru = activeResidents.filter((r) => r.TamTru === 'Đã khai báo').length;
   const unDeclaredList = activeResidents.filter((r) => r.TamTru === 'Chưa khai báo');
   const unDeclaredTamTru = unDeclaredList.length;
 
-  const roomOccupancyMap = rooms.map((room) => {
+  const roomOccupancyMap = sortedRooms.map((room) => {
     const count = countActiveOccupants(residents, room.MaNhaTro, room.TenPhong);
     return {
       room,
@@ -204,14 +210,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
 
           <div className="divide-y divide-slate-100">
-            {roomOccupancyMap.map(({ room, count, isFull }) => (
+            {roomOccupancyMap.map(({ room, count, isFull }, idx) => (
               <div
                 key={room.MaPhong}
                 className="px-5 py-3.5 flex items-center justify-between gap-4 hover:bg-slate-50 transition-colors"
               >
                 <div className="min-w-0">
-                  <div className="text-sm font-semibold text-slate-900 truncate">
-                    {room.TenPhong}
+                  <div className="text-sm font-semibold text-slate-900 truncate flex items-center gap-1.5">
+                    <span className="text-xs font-mono text-slate-400 tabular-nums">
+                      #{idx + 1}
+                    </span>
+                    <span>{normalizeRoomName(room.TenPhong)}</span>
                   </div>
                   <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
                     <span>{room.TenNhaTro}</span>

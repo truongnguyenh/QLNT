@@ -277,24 +277,41 @@ export const STANDALONE_INDEX_HTML = `<!DOCTYPE html>
       );
     }
 
+    function extractRoomNum(text) {
+      if (!text) return null;
+      const m = String(text).match(/\\d+/g);
+      return m && m.length > 0 ? parseInt(m[m.length - 1], 10) : null;
+    }
+
+    function compareRoomNames(a, b) {
+      const nA = extractRoomNum(a);
+      const nB = extractRoomNum(b);
+      if (nA !== null && nB !== null && nA !== nB) return nA - nB;
+      return String(a || '').localeCompare(String(b || ''), 'vi', { numeric: true, sensitivity: 'base' });
+    }
+
     function getFilteredRooms() {
       if (!state.currentUser) return [];
-      if (state.currentUser.Role === 'ADMIN') {
-        return state.adminFilter === 'ALL'
-          ? state.rooms
-          : state.rooms.filter(r => r.MaNhaTro === state.adminFilter);
-      }
-      return state.rooms.filter(r => r.MaNhaTro === state.currentUser.MaNhaTro);
+      const list = state.currentUser.Role === 'ADMIN'
+        ? (state.adminFilter === 'ALL' ? state.rooms : state.rooms.filter(r => r.MaNhaTro === state.adminFilter))
+        : state.rooms.filter(r => r.MaNhaTro === state.currentUser.MaNhaTro);
+      return [...list].sort((a, b) => {
+        const h = String(a.MaNhaTro || '').localeCompare(String(b.MaNhaTro || ''), 'vi', { numeric: true });
+        if (h !== 0) return h;
+        return compareRoomNames(a.TenPhong, b.TenPhong);
+      });
     }
 
     function getFilteredResidents() {
       if (!state.currentUser) return [];
-      if (state.currentUser.Role === 'ADMIN') {
-        return state.adminFilter === 'ALL'
-          ? state.residents
-          : state.residents.filter(r => r.MaNhaTro === state.adminFilter);
-      }
-      return state.residents.filter(r => r.MaNhaTro === state.currentUser.MaNhaTro);
+      const list = state.currentUser.Role === 'ADMIN'
+        ? (state.adminFilter === 'ALL' ? state.residents : state.residents.filter(r => r.MaNhaTro === state.adminFilter))
+        : state.residents.filter(r => r.MaNhaTro === state.currentUser.MaNhaTro);
+      return [...list].sort((a, b) => {
+        const h = String(a.MaNhaTro || '').localeCompare(String(b.MaNhaTro || ''), 'vi', { numeric: true });
+        if (h !== 0) return h;
+        return compareRoomNames(a.TenPhong, b.TenPhong);
+      });
     }
 
     function render() {
@@ -544,15 +561,19 @@ export const STANDALONE_INDEX_HTML = `<!DOCTYPE html>
     }
 
     function promptAddRoom() {
-      const tenPhong = prompt('Nhập tên phòng mới (VD: Phòng 103):');
-      if (!tenPhong || !tenPhong.trim()) return;
+      const rawTenPhong = prompt('Nhập tên hoặc số phòng mới (VD: Phòng 103 hoặc 103):');
+      if (!rawTenPhong || !rawTenPhong.trim()) return;
+      const trimmed = rawTenPhong.trim();
+      const tenPhong = /^\\d+$/.test(trimmed) ? ('Phòng ' + trimmed) : trimmed;
+      const numMatch = tenPhong.match(/\\d+/g);
+      const codeSuffix = numMatch && numMatch.length > 0 ? ('P' + numMatch[numMatch.length - 1]) : ('P' + (state.rooms.length + 1));
       const maNT = state.currentUser.Role === 'ADMIN' ? 'NT01' : state.currentUser.MaNhaTro;
       const tenNT = state.currentUser.Role === 'ADMIN' ? 'Nhà trọ Bình An' : state.currentUser.TenNhaTro;
       const newRoom = {
-        MaPhong: maNT + '-P' + String(Date.now()).slice(-3),
+        MaPhong: maNT + '-' + codeSuffix,
         MaNhaTro: maNT,
         TenNhaTro: tenNT,
-        TenPhong: tenPhong.trim(),
+        TenPhong: tenPhong,
         GhiChu: ''
       };
       state.rooms.push(newRoom);

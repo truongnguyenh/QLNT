@@ -9,6 +9,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { NhanKhau, Phong, TaiKhoan } from '../types/rental.ts';
+import { compareRoomNameStrings, normalizeRoomName } from '../utils/rentalRules.ts';
 
 interface ResidentListProps {
   residents: NhanKhau[];
@@ -62,7 +63,9 @@ export const ResidentList: React.FC<ResidentListProps> = ({
     return true;
   });
 
-  const distinctRooms = Array.from(new Set(rooms.map((r) => r.TenPhong))).sort();
+  const distinctRooms = Array.from(
+    new Set(rooms.map((r) => r.TenPhong))
+  ).sort(compareRoomNameStrings);
 
   const handleConfirmMoveOut = () => {
     if (!moveOutTarget) return;

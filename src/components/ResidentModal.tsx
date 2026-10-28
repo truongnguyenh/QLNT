@@ -17,7 +17,12 @@ import {
   GioiTinh,
   MAX_RESIDENTS_PER_ROOM,
 } from '../types/rental.ts';
-import { countActiveOccupants, validateResidentCapacity } from '../utils/rentalRules.ts';
+import {
+  countActiveOccupants,
+  validateResidentCapacity,
+  sortRoomsNaturally,
+  normalizeRoomName,
+} from '../utils/rentalRules.ts';
 
 interface ResidentModalProps {
   isOpen: boolean;
@@ -81,7 +86,9 @@ export const ResidentModal: React.FC<ResidentModalProps> = ({
     } else {
       const targetHouse = defaultRoom?.MaNhaTro || (currentUser.Role === 'ADMIN' ? (boardingHouses[0]?.maNhaTro || 'NT01') : currentUser.MaNhaTro);
       setMaNhaTro(targetHouse);
-      const availableRoomsForHouse = rooms.filter((r) => r.MaNhaTro === targetHouse);
+      const availableRoomsForHouse = sortRoomsNaturally(
+        rooms.filter((r) => r.MaNhaTro === targetHouse)
+      );
       setTenPhong(defaultRoom?.TenPhong || (availableRoomsForHouse[0]?.TenPhong || ''));
       setHoTen('');
       setNgaySinh('2000-01-01');
@@ -95,8 +102,10 @@ export const ResidentModal: React.FC<ResidentModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Filter available rooms in the selected house
-  const roomsInHouse = rooms.filter((r) => r.MaNhaTro === maNhaTro);
+  // Filter and sort available rooms in the selected house
+  const roomsInHouse = sortRoomsNaturally(
+    rooms.filter((r) => r.MaNhaTro === maNhaTro)
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

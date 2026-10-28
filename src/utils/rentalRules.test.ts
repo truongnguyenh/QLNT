@@ -10,11 +10,15 @@ import {
   authenticateAccount,
   canUserAccessBoardingHouse,
   validatePasswordStrength,
+  sortRoomsNaturally,
+  getNextRoomSuggestion,
+  deriveRoomCodeSuffix,
+  normalizeRoomName,
   DEFAULT_ROOMS,
   DEFAULT_RESIDENTS,
   DEFAULT_ACCOUNTS,
 } from './rentalRules.ts';
-import { NhanKhau, TaiKhoan } from '../types/rental.ts';
+import { NhanKhau, Phong, TaiKhoan } from '../types/rental.ts';
 
 test('countActiveOccupants only counts "Đang ở" status for specific room', () => {
   // Phòng 101 has 4 active occupants in default data
@@ -110,4 +114,31 @@ test('Security hardening: strict password check, password sanitization, and scop
   // Password strength validation
   assert.equal(validatePasswordStrength('123').valid, false);
   assert.equal(validatePasswordStrength('MatKhauAnToan123').valid, true);
+});
+
+test('Natural room sorting and sequential room numbering prevent out-of-order rooms', () => {
+  const unsortedRooms: Phong[] = [
+    { MaPhong: 'NT01-P201', MaNhaTro: 'NT01', TenNhaTro: 'A', TenPhong: 'Phòng 201', GhiChu: '' },
+    { MaPhong: 'NT01-P10', MaNhaTro: 'NT01', TenNhaTro: 'A', TenPhong: 'Phòng 10', GhiChu: '' },
+    { MaPhong: 'NT01-P2', MaNhaTro: 'NT01', TenNhaTro: 'A', TenPhong: 'Phòng 2', GhiChu: '' },
+    { MaPhong: 'NT01-P207', MaNhaTro: 'NT01', TenNhaTro: 'A', TenPhong: '104', GhiChu: '' },
+    { MaPhong: 'NT01-P1', MaNhaTro: 'NT01', TenNhaTro: 'A', TenPhong: 'Phòng 01', GhiChu: '' },
+  ];
+
+  const sorted = sortRoomsNaturally(unsortedRooms);
+  assert.deepEqual(
+    sorted.map((r) => r.TenPhong),
+    ['Phòng 01', 'Phòng 2', 'Phòng 10', '104', 'Phòng 201']
+  );
+
+  // Bare number normalization and room code derivation
+  assert.equal(normalizeRoomName('104'), 'Phòng 104');
+  assert.equal(normalizeRoomName('Phòng 105'), 'Phòng 105');
+  assert.equal(deriveRoomCodeSuffix('Phòng 104'), 'P104');
+  assert.equal(deriveRoomCodeSuffix('03'), 'P03');
+
+  // Next room suggestion for NT02 (which has Phòng 01, Phòng 02)
+  const nextNT02 = getNextRoomSuggestion(DEFAULT_ROOMS, 'NT02');
+  assert.equal(nextNT02.nextTenPhong, 'Phòng 03');
+  assert.equal(nextNT02.nextMaPhongSuffix, 'P03');
 });

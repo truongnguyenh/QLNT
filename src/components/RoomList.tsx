@@ -8,7 +8,13 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { Phong, NhanKhau, TaiKhoan, MAX_RESIDENTS_PER_ROOM } from '../types/rental.ts';
-import { countActiveOccupants } from '../utils/rentalRules.ts';
+import {
+  countActiveOccupants,
+  getNextRoomSuggestion,
+  deriveRoomCodeSuffix,
+  normalizeRoomName,
+  sortRoomsNaturally,
+} from '../utils/rentalRules.ts';
 
 interface RoomListProps {
   rooms: Phong[];
@@ -35,6 +41,8 @@ export const RoomList: React.FC<RoomListProps> = ({
   selectedFilterNhaTro = 'ALL',
   onSelectFilterNhaTro,
 }) => {
+  const sortedRooms = sortRoomsNaturally(rooms);
+
   const [isAddRoomModalOpen, setIsAddRoomModalOpen] = useState(false);
   const [editingRoom, setEditingRoom] = useState<Phong | null>(null);
   const [selectedRoomDetail, setSelectedRoomDetail] = useState<Phong | null>(null);
@@ -48,16 +56,19 @@ export const RoomList: React.FC<RoomListProps> = ({
   const [formError, setFormError] = useState<string | null>(null);
 
   const openAddModal = () => {
-    setEditingRoom(null);
-    setFormMaPhong('P' + Math.floor(100 + Math.random() * 900));
-    setFormTenPhong('');
-    setFormMaNhaTro(
+    const targetHouse =
       currentUser.Role === 'ADMIN'
         ? selectedFilterNhaTro !== 'ALL'
           ? selectedFilterNhaTro
           : boardingHouses[0]?.maNhaTro || 'NT01'
-        : currentUser.MaNhaTro
-    );
+        : currentUser.MaNhaTro;
+
+    const suggestion = getNextRoomSuggestion(sortedRooms, targetHouse);
+
+    setEditingRoom(null);
+    setFormMaNhaTro(targetHouse);
+    setFormTenPhong(suggestion.nextTenPhong);
+    setFormMaPhong(suggestion.nextMaPhongSuffix);
     setFormGhiChu('');
     setFormError(null);
     setIsAddRoomModalOpen(true);
@@ -66,28 +77,64 @@ export const RoomList: React.FC<RoomListProps> = ({
   const openEditModal = (room: Phong) => {
     setEditingRoom(room);
     setFormMaPhong(room.MaPhong);
-    setFormTenPhong(room.TenPhong);
+    setFormTenPhong(normalizeRoomName(room.TenPhong));
     setFormMaNhaTro(room.MaNhaTro);
     setFormGhiChu(room.GhiChu);
     setFormError(null);
     setIsAddRoomModalOpen(true);
   };
 
+  const handleTenPhongChange = (val: string) => {
+    setFormTenPhong(val);
+    if (!editingRoom) {
+      setFormMaPhong(deriveRoomCodeSuffix(val));
+    }
+  };
+
+  const handleHouseChangeInModal = (newMaNhaTro: string) => {
+    setFormMaNhaTro(newMaNhaTro);
+    if (!editingRoom) {
+      const suggestion = getNextRoomSuggestion(sortedRooms, newMaNhaTro);
+      setFormTenPhong(suggestion.nextTenPhong);
+      setFormMaPhong(suggestion.nextMaPhongSuffix);
+    }
+  };
+
   const handleSaveRoomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTenPhong.trim()) {
-      setFormError('Vui lòng nhập tên phòng (ví dụ: Phòng 101)');
+      setFormError('Vui lòng nhập tên hoặc số phòng (ví dụ: Phòng 101)');
+      return;
+    }
+
+    const normalizedName = normalizeRoomName(formTenPhong);
+
+    const isDuplicate = sortedRooms.some(
+      (r) =>
+        r.MaNhaTro === formMaNhaTro &&
+        r.MaPhong !== editingRoom?.MaPhong &&
+        normalizeRoomName(r.TenPhong).toLowerCase() === normalizedName.toLowerCase()
+    );
+
+    if (isDuplicate) {
+      setFormError(`"${normalizedName}" đã tồn tại trong nhà trọ này.`);
       return;
     }
 
     const houseObj = boardingHouses.find((h) => h.maNhaTro === formMaNhaTro);
     const tenNhaTro = houseObj ? houseObj.tenNhaTro : currentUser.TenNhaTro;
+    const suffix = formMaPhong.trim() || deriveRoomCodeSuffix(normalizedName);
+    const finalMaPhong = editingRoom
+      ? editingRoom.MaPhong
+      : suffix.startsWith(formMaNhaTro + '-')
+      ? suffix
+      : `${formMaNhaTro}-${suffix}`;
 
     const newRoom: Phong = {
-      MaPhong: editingRoom ? editingRoom.MaPhong : formMaNhaTro + '-' + formMaPhong.trim(),
+      MaPhong: finalMaPhong,
       MaNhaTro: formMaNhaTro,
       TenNhaTro: tenNhaTro,
-      TenPhong: formTenPhong.trim(),
+      TenPhong: normalizedName,
       GhiChu: formGhiChu.trim(),
     };
 
@@ -101,10 +148,10 @@ export const RoomList: React.FC<RoomListProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-5 border-b border-slate-200">
         <div>
           <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-            Danh sách phòng trọ ({rooms.length})
+            Danh sách phòng trọ ({sortedRooms.length})
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Mỗi phòng tối đa 4 người đang ở. Khi đủ 4 người, nút thêm người sẽ tự động khóa.
+            Sắp xếp tự động theo đúng số thứ tự phòng tăng dần · Tối đa 4 người đang ở mỗi phòng.
           </p>
         </div>
 
@@ -137,7 +184,7 @@ export const RoomList: React.FC<RoomListProps> = ({
       </div>
 
       {/* Room Grid */}
-      {rooms.length === 0 ? (
+      {sortedRooms.length === 0 ? (
         <div className="text-center py-14 bg-white rounded-xl border border-slate-200">
           <DoorClosed className="w-10 h-10 text-slate-300 mx-auto mb-3" />
           <h3 className="text-sm font-semibold text-slate-800">Chưa có phòng nào</h3>
@@ -147,7 +194,7 @@ export const RoomList: React.FC<RoomListProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {rooms.map((room) => {
+          {sortedRooms.map((room, idx) => {
             const activeOccupants = residents.filter(
               (r) =>
                 r.MaNhaTro === room.MaNhaTro &&
@@ -166,9 +213,14 @@ export const RoomList: React.FC<RoomListProps> = ({
                   {/* Card Top Header */}
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <h3 className="text-base font-bold text-slate-900">
-                        {room.TenPhong}
-                      </h3>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-semibold text-slate-400 tabular-nums">
+                          #{idx + 1}
+                        </span>
+                        <h3 className="text-base font-bold text-slate-900">
+                          {normalizeRoomName(room.TenPhong)}
+                        </h3>
+                      </div>
                       <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
                         <span>{room.TenNhaTro}</span>
                         <span aria-hidden="true">·</span>
@@ -321,7 +373,7 @@ export const RoomList: React.FC<RoomListProps> = ({
                 {currentUser.Role === 'ADMIN' ? (
                   <select
                     value={formMaNhaTro}
-                    onChange={(e) => setFormMaNhaTro(e.target.value)}
+                    onChange={(e) => handleHouseChangeInModal(e.target.value)}
                     disabled={Boolean(editingRoom)}
                     className="w-full text-xs border border-slate-300 rounded-lg p-2.5 outline-hidden focus:ring-2 focus:ring-slate-900"
                   >
@@ -343,29 +395,29 @@ export const RoomList: React.FC<RoomListProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Mã phòng
+                  Tên / Số phòng <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formTenPhong}
+                  onChange={(e) => handleTenPhongChange(e.target.value)}
+                  placeholder="Ví dụ: Phòng 103 (hoặc nhập 103)"
+                  className="w-full text-xs border border-slate-300 rounded-lg p-2.5 outline-hidden focus:ring-2 focus:ring-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Mã phòng (Tự động khớp theo số phòng)
                 </label>
                 <input
                   type="text"
                   value={formMaPhong}
                   onChange={(e) => setFormMaPhong(e.target.value)}
                   disabled={Boolean(editingRoom)}
-                  placeholder="Ví dụ: P101"
-                  className="w-full text-xs border border-slate-300 rounded-lg p-2.5 outline-hidden focus:ring-2 focus:ring-slate-900 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Tên phòng <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formTenPhong}
-                  onChange={(e) => setFormTenPhong(e.target.value)}
-                  placeholder="Ví dụ: Phòng 101"
-                  className="w-full text-xs border border-slate-300 rounded-lg p-2.5 outline-hidden focus:ring-2 focus:ring-slate-900"
+                  placeholder="Ví dụ: P103"
+                  className="w-full text-xs border border-slate-300 rounded-lg p-2.5 outline-hidden focus:ring-2 focus:ring-slate-900 font-mono disabled:bg-slate-100"
                 />
               </div>
 
